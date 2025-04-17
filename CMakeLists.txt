@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 set(CMAKE_CXX_STANDARD 17)
 
 # Include mpack headers
-include_directories(mpack/src)
+include_directories(mpack/src include)
 
 # Add source files
 set(MPACK_SOURCES
