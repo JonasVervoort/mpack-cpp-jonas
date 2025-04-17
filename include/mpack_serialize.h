@@ -213,28 +213,28 @@ struct TypeHandler<std::optional<U>>
   }
 };
 
-// // Specialization for binary data (vector<char>)
-// template<>
-// struct TypeHandler<std::vector<char>>
-// {
-//   static constexpr TypeTag tag = TypeTag::Binary;
+// Specialization for binary data (vector<char>)
+template<>
+struct TypeHandler<std::vector<char>>
+{
+  static constexpr TypeTag tag = TypeTag::Binary;
 
-//   static void write(mpack_writer_t * writer, const std::vector<char> & data, size_t = 0)
-//   {
-//     mpack_write_bin(writer, data.data(), data.size());
-//   }
+  static void write(mpack_writer_t * writer, const std::vector<char> & data, size_t = 0)
+  {
+    mpack_write_bin(writer, data.data(), data.size());
+  }
 
-//   static std::vector<char> read(mpack_reader_t * reader, size_t = 0)
-//   {
-//     mpack_tag_t tag = mpack_read_tag(reader);
-//     if (tag.type != mpack_type_bin) {
-//       throw std::runtime_error("Expected binary data");
-//     }
-//     std::vector<char> result(tag.v.n);
-//     mpack_expect_bin(reader, result.data(), result.size());
-//     return result;
-//   }
-// };
+  static std::vector<char> read(mpack_reader_t * reader, size_t = 0)
+  {
+    mpack_tag_t tag = mpack_read_tag(reader);
+    if (tag.type != mpack_type_bin) {
+      throw std::runtime_error("Expected binary data");
+    }
+    std::vector<char> result(tag.v.n);
+    mpack_expect_bin_size_buf(reader, result.data(), result.size());
+    return result;
+  }
+};
 
 // Specialization for std::array
 template<typename T, size_t N>
