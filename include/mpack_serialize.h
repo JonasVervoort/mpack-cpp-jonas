@@ -334,15 +334,15 @@ template<typename T, typename MemberType>
 struct Field
 {
   const char * name;
-  MemberType T::* ptr;
+  MemberType T::* member_ptr;
   size_t max_string_length = 0;
 };
 
 // Helper to create field descriptors
 template<typename T, typename MemberType>
-constexpr auto make_field(const char * name, MemberType T::* ptr, size_t max_string_length = 0)
+constexpr auto make_field(const char * name, MemberType T::* member_ptr, size_t max_string_length = 0)
 {
-  return Field<T, MemberType>{name, ptr, max_string_length};
+  return Field<T, MemberType>{name, member_ptr, max_string_length};
 }
 
 } // namespace serialization
@@ -463,7 +463,7 @@ private:
     mpack_write_cstr(writer, field.name);
     serialization::TypeHandler<MemberType>::write(
       writer,
-      static_cast<const Derived *>(this)->*(field.ptr));
+      static_cast<const Derived *>(this)->*(field.member_ptr));
   }
 
   // Deserialize a specific field by name
@@ -500,7 +500,7 @@ private:
   {
     if (!handled && key == field.name) {
       Derived * derived = static_cast<Derived *>(this);
-      derived->*(field.ptr) = serialization::TypeHandler<MemberType>::read(reader);
+      derived->*(field.member_ptr) = serialization::TypeHandler<MemberType>::read(reader);
       handled = true;
     }
   }
