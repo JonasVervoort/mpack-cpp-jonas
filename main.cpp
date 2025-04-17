@@ -3,6 +3,7 @@
 #include <array>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 #include <optional>
 #include <map>
@@ -18,6 +19,8 @@ struct MyData : public MsgPackSerializable<MyData>
   int version;
   std::array<int, 3> array;
   double my_double=3.3; // Example of additional field
+  std::optional<int> optional_value; // Example of optional field
+  std::unordered_map<int, double> my_map; // Example of map field
 
   // Default constructor required for deserialization
   MyData()
@@ -35,7 +38,9 @@ struct MyData : public MsgPackSerializable<MyData>
       make_field("name", &MyData::name, 20),
       make_field("version", &MyData::version),
       make_field("array", &MyData::array),
-      make_field("haha", &MyData::my_double)
+      make_field("haha", &MyData::my_double),
+      make_field("optional_value", &MyData::optional_value),
+      make_field("my_map", &MyData::my_map)
     );
   }
 };
@@ -115,7 +120,7 @@ int main()
   std::array<char, buffer_size> buffer;
   // fill with zero's
   buffer.fill(0);
-  const auto size_of_msg = user.to_msgpack(buffer);
+  const auto size_of_msg = Serializable::to_msgpack(buffer, user);
   std::cout << "Serialized to " << std::to_string(size_of_msg) << " bytes\n";
   
   // Deserialize from buffer

@@ -1,11 +1,12 @@
 #ifndef MPACK_SERIALIZE_H
-#define MPACK_SERIALIZE_H 
+#define MPACK_SERIALIZE_H
 
 #include <iostream>
 #include <string>
 #include <array>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 #include <optional>
 #include <map>
@@ -33,7 +34,6 @@ struct is_string_like<const char *>: std::true_type {};
 
 template<size_t N>
 struct is_string_like<char[N]>: std::true_type {};
-
 
 
 // Helper to detect if a type inherits from Serializable
@@ -155,7 +155,7 @@ struct TypeHandler<bool>
 
 // Specialization for unsigned integers
 template<typename T>
-struct TypeHandler<T, std::enable_if_t<std::is_unsigned_v<T> && !std::is_same_v<T, bool>>> 
+struct TypeHandler<T, std::enable_if_t<std::is_unsigned_v<T>&& !std::is_same_v<T, bool>>>
 {
   static constexpr TypeTag tag = TypeTag::UInt;
 
@@ -299,11 +299,11 @@ struct TypeHandler<std::vector<T>>
 
 // Specialization for std::map
 template<typename K, typename V>
-struct TypeHandler<std::map<K, V>>
+struct TypeHandler<std::unordered_map<K, V>>
 {
   static constexpr TypeTag tag = TypeTag::Map;
 
-  static void write(mpack_writer_t * writer, const std::map<K, V> & m)
+  static void write(mpack_writer_t * writer, const std::unordered_map<K, V> & m)
   {
     mpack_start_map(writer, m.size());
     for (const auto & kv : m) {
@@ -313,13 +313,13 @@ struct TypeHandler<std::map<K, V>>
     mpack_finish_map(writer);
   }
 
-  static std::map<K, V> read(mpack_reader_t * reader)
+  static std::unordered_map<K, V> read(mpack_reader_t * reader)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_map) {
       throw std::runtime_error("Expected map");
     }
-    std::map<K, V> result;
+    std::unordered_map<K, V> result;
     for (uint32_t i = 0; i < tag.v.n; ++i) {
       K key = TypeHandler<K>::read(reader);
       V value = TypeHandler<V>::read(reader);
@@ -369,12 +369,12 @@ public:
 
   // Helper for serialization to buffer
   template<size_t N>
-  size_t to_msgpack(std::array<char,N> & buffer) const
+  static size_t to_msgpack(std::array<char, N> & buffer, const Serializable & obj)
   {
     mpack_writer_t writer;
     mpack_writer_init(&writer, buffer.data(), buffer.size());
 
-    serialize(&writer);
+    obj.serialize(&writer);
 
     size_t actual_size = mpack_writer_buffer_used(&writer);
     if (mpack_writer_destroy(&writer) == mpack_ok) {
@@ -386,7 +386,7 @@ public:
 
   // Helper for deserialization from buffer
   template<size_t N>
-  static void from_msgpack(const std::array<char,N> & buffer, Serializable & obj)
+  static void from_msgpack(const std::array<char, N> & buffer, Serializable & obj)
   {
     mpack_reader_t reader;
     mpack_reader_init_data(&reader, buffer.data(), buffer.size());
