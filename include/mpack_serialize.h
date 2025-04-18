@@ -81,7 +81,8 @@ struct TypeHandler
     is_string_like<T>::value ? TypeTag::String :
     TypeTag::CustomObject;
 
-  static void write(mpack_writer_t * writer, const T & value, size_t max_length = 0)
+
+ static void write(mpack_writer_t * writer, const T & value, size_t max_length = 0)
   {
     if constexpr (std::is_integral_v<T>) {
       mpack_write_int(writer, static_cast<int64_t>(value));
@@ -113,14 +114,30 @@ struct TypeHandler
     } else if constexpr (std::is_floating_point_v<T>) {
       value = static_cast<T>(mpack_expect_float(reader));
     } else if constexpr (std::is_same_v<T, std::string>) {
-      if (max_length > 0) {
-        char buffer[max_length + 1];
-        mpack_expect_cstr(reader, buffer, sizeof(buffer));
-        value = std::string(buffer);
+      mpack_tag_t tag = mpack_peek_tag(reader);
+      if (tag.type != mpack_type_str) {
+        throw std::runtime_error("Expected string type");
+      }
+      
+      // Determine string length
+      size_t str_len = tag.v.l;
+      size_t buffer_size = (max_length > 0 && str_len > max_length) ? max_length : str_len;
+      
+      // Resize the string to fit the data
+      value.resize(buffer_size);
+      
+      // Read directly into the string's buffer
+      if (buffer_size > 0) {
+        mpack_read_tag(reader); // Consume the tag we peeked
+        mpack_read_bytes(reader, &value[0], buffer_size);
+        
+        // If we truncated the string, skip the remainder
+        if (buffer_size < str_len) {
+          mpack_skip_bytes(reader, str_len - buffer_size);
+        }
       } else {
-        char * str = mpack_expect_cstr_alloc(reader, 256);
-        value = std::string(str);
-        MPACK_FREE(str);
+        mpack_discard(reader);
+        value.clear();
       }
     } else if constexpr (is_serializable_v<T>) {
       value.deserialize(reader);
@@ -130,6 +147,8 @@ struct TypeHandler
         "Type is not deserializable and does not match any known type");
     }
   }
+
+  
 };
 
 // Specialization for bool
