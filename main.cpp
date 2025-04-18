@@ -18,13 +18,18 @@ struct MyData : public MsgPackSerializable<MyData>
   std::string name;
   int version;
   std::array<int, 3> array;
+  std::array<char, 20> cstr; // Example of a fixed-size array
+
   double my_double=3.3; // Example of additional field
   std::optional<int> optional_value; // Example of optional field
   std::unordered_map<int, double> my_map; // Example of map field
 
   // Default constructor required for deserialization
   MyData()
-  : name(""), version(0), array({0, 0, 0}) {}
+  : name(""), version(0), array({0, 0, 0}) {
+    const char* content = "default";
+    std::copy(content, content + 20, cstr.begin());
+  }
 
   // Custom constructor for convenience
   MyData(const std::string & n, int v, const std::array<int, 3> & a)
@@ -40,7 +45,8 @@ struct MyData : public MsgPackSerializable<MyData>
       make_field("array", &MyData::array),
       make_field("haha", &MyData::my_double),
       make_field("optional_value", &MyData::optional_value),
-      make_field("my_map", &MyData::my_map)
+      make_field("my_map", &MyData::my_map),
+      make_field("cstr", &MyData::cstr)
     );
   }
 };
