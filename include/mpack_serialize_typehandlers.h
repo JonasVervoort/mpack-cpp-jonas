@@ -1,4 +1,4 @@
-#ifndef MPACK_SERIALIZE_TYPEHANDLERS_H 
+#ifndef MPACK_SERIALIZE_TYPEHANDLERS_H
 #define MPACK_SERIALIZE_TYPEHANDLERS_H
 
 #include <iostream>
@@ -13,6 +13,20 @@
 #include <map>
 #include <cstdint>
 #include "mpack/mpack.h"
+
+template<size_t N>
+struct MsgPackExtension
+{
+  int8_t type;
+  char buffer[N];
+  static constexpr size_t size=N;
+
+  MsgPackExtension() : MsgPackExtension(0) {}
+  MsgPackExtension(int8_t t) : type(t) {
+    std::fill(std::begin(buffer), std::end(buffer), 0);
+  }
+};
+
 
 
 // Serialization framework
@@ -79,7 +93,7 @@ struct TypeHandler
     TypeTag::CustomObject;
 
 
- static void write(mpack_writer_t * writer, const T & value)
+  static void write(mpack_writer_t * writer, const T & value)
   {
     if constexpr (std::is_integral_v<T>) {
       mpack_write_int(writer, static_cast<int64_t>(value));
@@ -111,11 +125,11 @@ struct TypeHandler
       if (tag.type != mpack_type_str) {
         throw std::runtime_error("Expected string type");
       }
-      
+
       // Determine string length
       const size_t str_len = tag.v.l;
       value.resize(str_len); // ATTENTION: This may cause reallocation
-      
+
       // Read directly into the string's buffer
       if (str_len > 0) {
         mpack_read_tag(reader); // Consume the tag we peeked
@@ -135,26 +149,27 @@ struct TypeHandler
 };
 
 // Variadic template version
-template<typename... Types>
+template<typename ... Types>
 struct TypeHandler<std::variant<Types...>>
 {
-  static void write(mpack_writer_t* writer, const std::variant<Types...>& value)
+  static void write(mpack_writer_t * writer, const std::variant<Types...> & value)
   {
     // Directly write the value
-    std::visit([writer](const auto& v) {
-      using ValueType = std::decay_t<decltype(v)>;
-      TypeHandler<ValueType>::write(writer, v);
-    }, value);
+    std::visit(
+      [writer](const auto & v) {
+        using ValueType = std::decay_t<decltype(v)>;
+        TypeHandler<ValueType>::write(writer, v);
+      }, value);
   }
 
-  static void read(mpack_reader_t* reader, std::variant<Types...>& value)
+  static void read(mpack_reader_t * reader, std::variant<Types...> & value)
   {
     // Peek at the next tag
     mpack_tag_t tag = mpack_peek_tag(reader);
-    
+
     // Try to match with a type in the variant
     bool matched = try_read_variant<0, Types...>(reader, value, tag);
-    
+
     if (!matched) {
       throw std::runtime_error("Could not match any variant type with the MessagePack tag");
     }
@@ -162,8 +177,10 @@ struct TypeHandler<std::variant<Types...>>
 
 private:
   // Recursive template to try reading each variant type
-  template<size_t I, typename First, typename... Rest>
-  static bool try_read_variant(mpack_reader_t* reader, std::variant<Types...>& value, const mpack_tag_t& tag)
+  template<size_t I, typename First, typename ... Rest>
+  static bool try_read_variant(
+    mpack_reader_t * reader, std::variant<Types...> & value,
+    const mpack_tag_t & tag)
   {
     if (can_read_as<First>(tag)) {
       First val;
@@ -171,40 +188,38 @@ private:
       value = std::move(val);
       return true;
     }
-    
+
     if constexpr (sizeof...(Rest) > 0) {
-      return try_read_variant<I+1, Rest...>(reader, value, tag);
+      return try_read_variant<I + 1, Rest...>(reader, value, tag);
     }
-    
+
     return false;
   }
 
   // Base case for the recursion
   template<size_t I>
-  static bool try_read_variant(mpack_reader_t* reader, std::variant<Types...>& value, const mpack_tag_t& tag)
+  static bool try_read_variant(
+    mpack_reader_t * reader, std::variant<Types...> & value,
+    const mpack_tag_t & tag)
   {
     return false;
   }
 
   // Type matcher helper
   template<typename T>
-  static bool can_read_as(const mpack_tag_t& tag) {
+  static bool can_read_as(const mpack_tag_t & tag)
+  {
     if constexpr (std::is_same_v<T, bool>) {
       return tag.type == mpack_type_bool;
-    }
-    else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+    } else if constexpr (std::is_integral_v<T>&& std::is_signed_v<T>) {
       return tag.type == mpack_type_int;
-    }
-    else if constexpr (std::is_integral_v<T> && std::is_unsigned_v<T>) {
+    } else if constexpr (std::is_integral_v<T>&& std::is_unsigned_v<T>) {
       return tag.type == mpack_type_uint;
-    }
-    else if constexpr (std::is_floating_point_v<T>) {
+    } else if constexpr (std::is_floating_point_v<T>) {
       return tag.type == mpack_type_float || tag.type == mpack_type_double;
-    }
-    else if constexpr (std::is_same_v<T, std::string>) {
+    } else if constexpr (std::is_same_v<T, std::string>) {
       return tag.type == mpack_type_str;
-    }
-    else if constexpr (is_serializable_v<T>) {
+    } else if constexpr (is_serializable_v<T>) {
       // For serializable types, we often use maps
       return tag.type == mpack_type_map;
     }
@@ -228,6 +243,26 @@ struct TypeHandler<bool>
   static void read(mpack_reader_t * reader, bool & value)
   {
     value = mpack_expect_bool(reader);
+  }
+};
+
+template<size_t N>
+struct TypeHandler<MsgPackExtension<N>>
+{
+  static void write(mpack_writer_t * writer, const MsgPackExtension<N> & value)
+  {
+    mpack_write_ext(writer, value.type, value.buffer, N);
+  }
+
+  static void read(mpack_reader_t * reader, MsgPackExtension<N> & value)
+  {
+    int8_t returned_type;
+    uint32_t buf_size = mpack_expect_ext(reader, &returned_type);
+    if (buf_size > N) {
+      throw std::runtime_error("Buffer size is too small");
+    }
+    mpack_read_bytes(reader, value.buffer, buf_size);
+    value.type = returned_type;
   }
 };
 
@@ -397,13 +432,13 @@ struct TypeHandler<std::unordered_map<K, V>>
     if (tag.type != mpack_type_map) {
       throw std::runtime_error("Expected map");
     }
-    
+
     for (uint32_t i = 0; i < tag.v.n; ++i) {
       K key;
       V value;
       TypeHandler<K>::read(reader, key);
       TypeHandler<V>::read(reader, value);
-      result[std::move(key)] = std::move(value); // ATTENTION allocation will happen if key does not exist
+      result[std::move(key)] = std::move(value);     // ATTENTION allocation will happen if key does not exist
     }
   }
 };

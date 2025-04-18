@@ -25,6 +25,12 @@ add_executable(mpack_example
 # Tell the compiler it's a C file
 foreach(source_file ${MPACK_SOURCES})
   set_source_files_properties(${source_file} PROPERTIES LANGUAGE C)
+
 endforeach()
+
+#set preprocessor definitions MPACK_EXTENSIONS -> 1
+target_compile_definitions(mpack_example PRIVATE MPACK_EXTENSIONS=1)
+
+
 # Generate a compile_commands.json file for editor IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
