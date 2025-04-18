@@ -40,7 +40,7 @@ struct MyData : public MsgPackSerializable<MyData>
   {
     using namespace serialization;
     return std::make_tuple(
-      make_field("name", &MyData::name, 20),
+      make_field("name", &MyData::name),
       make_field("version", &MyData::version),
       make_field("array", &MyData::array),
       make_field("haha", &MyData::my_double),

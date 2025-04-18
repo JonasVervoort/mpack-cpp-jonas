@@ -82,7 +82,7 @@ struct TypeHandler
     TypeTag::CustomObject;
 
 
- static void write(mpack_writer_t * writer, const T & value, size_t max_length = 0)
+ static void write(mpack_writer_t * writer, const T & value)
   {
     if constexpr (std::is_integral_v<T>) {
       mpack_write_int(writer, static_cast<int64_t>(value));
@@ -90,11 +90,7 @@ struct TypeHandler
       mpack_write_float(writer, static_cast<float>(value));
     } else if constexpr (is_string_like<T>::value) {
       if constexpr (std::is_same_v<T, std::string>) {
-        if (max_length > 0 && value.length() > max_length) {
-          mpack_write_str(writer, value.c_str(), max_length);
-        } else {
-          mpack_write_cstr(writer, value.c_str());
-        }
+        mpack_write_cstr(writer, value.c_str());
       } else {
         mpack_write_cstr(writer, value);
       }
@@ -107,7 +103,7 @@ struct TypeHandler
     }
   }
 
-  static void read(mpack_reader_t * reader, T & value, size_t max_length = 0)
+  static void read(mpack_reader_t * reader, T & value)
   {
     if constexpr (std::is_integral_v<T>) {
       value = static_cast<T>(mpack_expect_int(reader));
@@ -120,21 +116,13 @@ struct TypeHandler
       }
       
       // Determine string length
-      size_t str_len = tag.v.l;
-      size_t buffer_size = (max_length > 0 && str_len > max_length) ? max_length : str_len;
-      
-      // Resize the string to fit the data
-      value.resize(buffer_size);
+      const size_t str_len = tag.v.l;
+      value.resize(str_len); // ATTENTION: This may cause reallocation
       
       // Read directly into the string's buffer
-      if (buffer_size > 0) {
+      if (str_len > 0) {
         mpack_read_tag(reader); // Consume the tag we peeked
-        mpack_read_bytes(reader, &value[0], buffer_size);
-        
-        // If we truncated the string, skip the remainder
-        if (buffer_size < str_len) {
-          mpack_skip_bytes(reader, str_len - buffer_size);
-        }
+        mpack_read_bytes(reader, &value[0], str_len);
       } else {
         mpack_discard(reader);
         value.clear();
@@ -147,8 +135,6 @@ struct TypeHandler
         "Type is not deserializable and does not match any known type");
     }
   }
-
-  
 };
 
 // Specialization for bool
@@ -157,12 +143,12 @@ struct TypeHandler<bool>
 {
   static constexpr TypeTag tag = TypeTag::Bool;
 
-  static void write(mpack_writer_t * writer, bool value, size_t = 0)
+  static void write(mpack_writer_t * writer, bool value)
   {
     mpack_write_bool(writer, value);
   }
 
-  static void read(mpack_reader_t * reader, bool & value, size_t = 0)
+  static void read(mpack_reader_t * reader, bool & value)
   {
     value = mpack_expect_bool(reader);
   }
@@ -174,12 +160,12 @@ struct TypeHandler<T, std::enable_if_t<std::is_unsigned_v<T>&& !std::is_same_v<T
 {
   static constexpr TypeTag tag = TypeTag::UInt;
 
-  static void write(mpack_writer_t * writer, T value, size_t = 0)
+  static void write(mpack_writer_t * writer, T value)
   {
     mpack_write_uint(writer, static_cast<uint64_t>(value));
   }
 
-  static void read(mpack_reader_t * reader, T & value, size_t = 0)
+  static void read(mpack_reader_t * reader, T & value)
   {
     value = static_cast<T>(mpack_expect_u32(reader));
   }
@@ -191,12 +177,12 @@ struct TypeHandler<double>
 {
   static constexpr TypeTag tag = TypeTag::Double;
 
-  static void write(mpack_writer_t * writer, double value, size_t = 0)
+  static void write(mpack_writer_t * writer, double value)
   {
     mpack_write_double(writer, value);
   }
 
-  static void read(mpack_reader_t * reader, double & value, size_t = 0)
+  static void read(mpack_reader_t * reader, double & value)
   {
     value = mpack_expect_double(reader);
   }
@@ -208,16 +194,16 @@ struct TypeHandler<std::optional<U>>
 {
   static constexpr TypeTag tag = TypeTag::Nil;
 
-  static void write(mpack_writer_t * writer, const std::optional<U> & opt, size_t max_length = 0)
+  static void write(mpack_writer_t * writer, const std::optional<U> & opt)
   {
     if (opt.has_value()) {
-      TypeHandler<U>::write(writer, *opt, max_length);
+      TypeHandler<U>::write(writer, *opt);
     } else {
       mpack_write_nil(writer);
     }
   }
 
-  static void read(mpack_reader_t * reader, std::optional<U> & opt, size_t max_length = 0)
+  static void read(mpack_reader_t * reader, std::optional<U> & opt)
   {
     mpack_tag_t tag = mpack_peek_tag(reader);
     if (tag.type == mpack_type_nil) {
@@ -227,7 +213,7 @@ struct TypeHandler<std::optional<U>>
       if (!opt.has_value()) {
         opt.emplace();
       }
-      TypeHandler<U>::read(reader, *opt, max_length);
+      TypeHandler<U>::read(reader, *opt);
     }
   }
 };
@@ -238,12 +224,12 @@ struct TypeHandler<std::vector<char>>
 {
   static constexpr TypeTag tag = TypeTag::Binary;
 
-  static void write(mpack_writer_t * writer, const std::vector<char> & data, size_t = 0)
+  static void write(mpack_writer_t * writer, const std::vector<char> & data)
   {
     mpack_write_bin(writer, data.data(), data.size());
   }
 
-  static void read(mpack_reader_t * reader, std::vector<char> & result, size_t = 0)
+  static void read(mpack_reader_t * reader, std::vector<char> & result)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_bin) {
@@ -351,14 +337,13 @@ struct Field
 {
   const char * name;
   MemberType T::* member_ptr;
-  size_t max_string_length = 0;
 };
 
 // Helper to create field descriptors
 template<typename T, typename MemberType>
-constexpr auto make_field(const char * name, MemberType T::* member_ptr, size_t max_string_length = 0)
+constexpr auto make_field(const char * name, MemberType T::* member_ptr)
 {
-  return Field<T, MemberType>{name, member_ptr, max_string_length};
+  return Field<T, MemberType>{name, member_ptr};
 }
 
 } // namespace serialization
