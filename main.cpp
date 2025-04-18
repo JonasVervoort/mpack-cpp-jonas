@@ -10,6 +10,7 @@
 #include <cstdint>
 #include "mpack/mpack.h"
 #include "include/mpack_serialize.h"
+#include "include/mpack_serializer.h"
 
 
 // First serializable class - needs to be defined before being used in UserInfo
@@ -33,7 +34,12 @@ struct MyData : public MsgPackSerializable<MyData>
 
   // Custom constructor for convenience
   MyData(const std::string & n, int v, const std::array<int, 3> & a)
-  : name(n), version(v), array(a) {}
+  : name(n), version(v), array(a) {
+    const char* content = "default";
+    std::copy(content, content + 20, cstr.begin());
+    my_map[1] = 1.1;
+    my_map[2] = 2.2;
+  }
 
   // Define reflection information for the struct
   static constexpr auto get_fields()
