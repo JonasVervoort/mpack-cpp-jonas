@@ -106,32 +106,28 @@ struct TypeHandler
     }
   }
 
-  static T read(mpack_reader_t * reader, size_t max_length = 0)
+  static void read(mpack_reader_t * reader, T & value, size_t max_length = 0)
   {
     if constexpr (std::is_integral_v<T>) {
-      return static_cast<T>(mpack_expect_int(reader));
+      value = static_cast<T>(mpack_expect_int(reader));
     } else if constexpr (std::is_floating_point_v<T>) {
-      return static_cast<T>(mpack_expect_float(reader));
+      value = static_cast<T>(mpack_expect_float(reader));
     } else if constexpr (std::is_same_v<T, std::string>) {
       if (max_length > 0) {
         char buffer[max_length + 1];
         mpack_expect_cstr(reader, buffer, sizeof(buffer));
-        return std::string(buffer);
+        value = std::string(buffer);
       } else {
         char * str = mpack_expect_cstr_alloc(reader, 256);
-        std::string result(str);
+        value = std::string(str);
         MPACK_FREE(str);
-        return result;
       }
     } else if constexpr (is_serializable_v<T>) {
-      T obj;
-      obj.deserialize(reader);
-      return obj;
+      value.deserialize(reader);
     } else {
       static_assert(
         sizeof(T) == 0,
         "Type is not deserializable and does not match any known type");
-      return T{};
     }
   }
 };
@@ -147,9 +143,9 @@ struct TypeHandler<bool>
     mpack_write_bool(writer, value);
   }
 
-  static bool read(mpack_reader_t * reader, size_t = 0)
+  static void read(mpack_reader_t * reader, bool & value, size_t = 0)
   {
-    return mpack_expect_bool(reader);
+    value = mpack_expect_bool(reader);
   }
 };
 
@@ -164,9 +160,9 @@ struct TypeHandler<T, std::enable_if_t<std::is_unsigned_v<T>&& !std::is_same_v<T
     mpack_write_uint(writer, static_cast<uint64_t>(value));
   }
 
-  static T read(mpack_reader_t * reader, size_t = 0)
+  static void read(mpack_reader_t * reader, T & value, size_t = 0)
   {
-    return static_cast<T>(mpack_expect_u32(reader));
+    value = static_cast<T>(mpack_expect_u32(reader));
   }
 };
 
@@ -181,9 +177,9 @@ struct TypeHandler<double>
     mpack_write_double(writer, value);
   }
 
-  static double read(mpack_reader_t * reader, size_t = 0)
+  static void read(mpack_reader_t * reader, double & value, size_t = 0)
   {
-    return mpack_expect_double(reader);
+    value = mpack_expect_double(reader);
   }
 };
 
@@ -202,14 +198,18 @@ struct TypeHandler<std::optional<U>>
     }
   }
 
-  static std::optional<U> read(mpack_reader_t * reader, size_t max_length = 0)
+  static void read(mpack_reader_t * reader, std::optional<U> & opt, size_t max_length = 0)
   {
     mpack_tag_t tag = mpack_peek_tag(reader);
     if (tag.type == mpack_type_nil) {
       mpack_expect_nil(reader);
-      return std::nullopt;
+      opt = std::nullopt;
+    } else {
+      if (!opt.has_value()) {
+        opt.emplace();
+      }
+      TypeHandler<U>::read(reader, *opt, max_length);
     }
-    return TypeHandler<U>::read(reader, max_length);
   }
 };
 
@@ -224,15 +224,14 @@ struct TypeHandler<std::vector<char>>
     mpack_write_bin(writer, data.data(), data.size());
   }
 
-  static std::vector<char> read(mpack_reader_t * reader, size_t = 0)
+  static void read(mpack_reader_t * reader, std::vector<char> & result, size_t = 0)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_bin) {
       throw std::runtime_error("Expected binary data");
     }
-    std::vector<char> result(tag.v.n);
+    result.resize(tag.v.n);
     mpack_expect_bin_size_buf(reader, result.data(), result.size());
-    return result;
   }
 };
 
@@ -251,18 +250,16 @@ struct TypeHandler<std::array<T, N>>
     mpack_finish_array(writer);
   }
 
-  static std::array<T, N> read(mpack_reader_t * reader)
+  static void read(mpack_reader_t * reader, std::array<T, N> & result)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_array || tag.v.n != N) {
       throw std::runtime_error("Expected array of specific size");
     }
 
-    std::array<T, N> result;
     for (size_t i = 0; i < N; ++i) {
-      result[i] = TypeHandler<T>::read(reader);
+      TypeHandler<T>::read(reader, result[i]);
     }
-    return result;
   }
 };
 
@@ -281,23 +278,21 @@ struct TypeHandler<std::vector<T>>
     mpack_finish_array(writer);
   }
 
-  static std::vector<T> read(mpack_reader_t * reader)
+  static void read(mpack_reader_t * reader, std::vector<T> & result)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_array) {
       throw std::runtime_error("Expected array");
     }
 
-    std::vector<T> result;
-    result.reserve(tag.v.n);
+    result.resize(tag.v.n);
     for (uint32_t i = 0; i < tag.v.n; ++i) {
-      result.push_back(TypeHandler<T>::read(reader));
+      TypeHandler<T>::read(reader, result[i]);
     }
-    return result;
   }
 };
 
-// Specialization for std::map
+// Specialization for std::unordered_map
 template<typename K, typename V>
 struct TypeHandler<std::unordered_map<K, V>>
 {
@@ -313,19 +308,21 @@ struct TypeHandler<std::unordered_map<K, V>>
     mpack_finish_map(writer);
   }
 
-  static std::unordered_map<K, V> read(mpack_reader_t * reader)
+  static void read(mpack_reader_t * reader, std::unordered_map<K, V> & result)
   {
     mpack_tag_t tag = mpack_read_tag(reader);
     if (tag.type != mpack_type_map) {
       throw std::runtime_error("Expected map");
     }
-    std::unordered_map<K, V> result;
+    
+    result.clear();
     for (uint32_t i = 0; i < tag.v.n; ++i) {
-      K key = TypeHandler<K>::read(reader);
-      V value = TypeHandler<V>::read(reader);
-      result.emplace(key, value);
+      K key;
+      V value;
+      TypeHandler<K>::read(reader, key);
+      TypeHandler<V>::read(reader, value);
+      result.emplace(std::move(key), std::move(value));
     }
-    return result;
   }
 };
 
@@ -500,7 +497,7 @@ private:
   {
     if (!handled && key == field.name) {
       Derived * derived = static_cast<Derived *>(this);
-      derived->*(field.member_ptr) = serialization::TypeHandler<MemberType>::read(reader);
+      serialization::TypeHandler<MemberType>::read(reader, derived->*(field.member_ptr));
       handled = true;
     }
   }
