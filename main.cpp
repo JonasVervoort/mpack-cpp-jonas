@@ -13,134 +13,125 @@
 #include "include/mpack_serializer.h"
 
 
-// First serializable class - needs to be defined before being used in UserInfo
-struct MyData : public MsgPackSerializable<MyData>
-{
+template<typename T>
+class X90IO : public MsgPackSerializable<X90IO<T>> {
+  public:
   std::string name;
-  int version;
-  std::array<int, 3> array;
-  std::array<char, 20> cstr; // Example of a fixed-size array
-
-  double my_double=3.3; // Example of additional field
-  std::optional<int> optional_value; // Example of optional field
-  std::unordered_map<int, double> my_map; // Example of map field
-
-  // Default constructor required for deserialization
-  MyData()
-  : name(""), version(0), array({0, 0, 0}) {
-    const char* content = "default";
-    std::copy(content, content + 20, cstr.begin());
-  }
-
-  // Custom constructor for convenience
-  MyData(const std::string & n, int v, const std::array<int, 3> & a)
-  : name(n), version(v), array(a) {
-    const char* content = "default";
-    std::copy(content, content + 20, cstr.begin());
-    my_map[1] = 1.1;
-    my_map[2] = 2.2;
-  }
-
-  // Define reflection information for the struct
+  T data;
   static constexpr auto get_fields()
   {
     using namespace serialization;
     return std::make_tuple(
-      make_field("name", &MyData::name),
-      make_field("version", &MyData::version),
-      make_field("array", &MyData::array),
-      make_field("haha", &MyData::my_double),
-      make_field("optional_value", &MyData::optional_value),
-      make_field("my_map", &MyData::my_map),
-      make_field("cstr", &MyData::cstr)
+      make_field("name", &X90IO::name),
+      make_field("data", &X90IO::data)
     );
+  }
+  void print() const
+  {
+    std::cout << "          Name: " << name ;
+    std::cout << "  Data: " << data << '\n';
   }
 };
 
-// Second serializable class with nested MyData object
-struct UserInfo : public MsgPackSerializable<UserInfo>
-{
-  std::string username;
-  int user_id;
-  std::vector<std::string> roles;
-  MyData metadata;   // Nested serializable object
-
-  // Default constructor required for deserialization
-  UserInfo()
-  : username(""), user_id(0), roles(), metadata() {}
-  // Custom constructor
-  UserInfo(
-    const std::string & uname, int id,
-    const std::vector<std::string> & r, const MyData & md)
-  : username(uname), user_id(id), roles(r), metadata(md)
-  {
-  }
-
+class X90IOGroup : public MsgPackSerializable<X90IOGroup> {
+  public:
+  std::string name;
+  int time_recorded;
+  bool is_fail;
+  std::vector<X90IO<int>> ios; 
   static constexpr auto get_fields()
   {
     using namespace serialization;
     return std::make_tuple(
-      make_field("username", &UserInfo::username),
-      make_field("user_id", &UserInfo::user_id),
-      make_field("roles", &UserInfo::roles),
-      make_field("metadata", &UserInfo::metadata)
+      make_field("Name", &X90IOGroup::name),
+      make_field("TimeRecorded", &X90IOGroup::time_recorded),
+      make_field("Fail", &X90IOGroup::is_fail),
+      make_field("IOs", &X90IOGroup::ios)
     );
   }
-
-
+  void print() const
+  {
+    std::cout << "      Name: " << name << '\n';
+    std::cout << "      Time Recorded: " << time_recorded << '\n';
+    std::cout << "      Fail: " << (is_fail ? "true" : "false") << '\n';
+    std::cout << "      IOs:[\n";
+    for (const auto & io : ios) {
+      io.print();
+    }
+    std::cout << "      ]\n";
+  }
 };
 
-// Function to print UserInfo contents
-void print_user(const UserInfo & user)
-{
-  std::cout << "UserInfo contents:\n";
-  std::cout << "  Username: " << user.username << '\n';
-  std::cout << "  User ID: " << user.user_id << '\n';
-  std::cout << "  Roles: [";
-  for (size_t i = 0; i < user.roles.size(); ++i) {
-    if (i > 0) {std::cout << ", ";}
-    std::cout << user.roles[i];
+class X90Msg : public MsgPackSerializable<X90Msg> {
+  public:
+  std::string endpoint_id;
+  int current_time;
+  std::vector<X90IOGroup> io_groups; 
+  
+  static constexpr auto get_fields()
+  {
+    using namespace serialization;
+    return std::make_tuple(
+      make_field("EndpointId", &X90Msg::endpoint_id),
+      make_field("CurrentTime", &X90Msg::current_time),
+      make_field("IOGroups", &X90Msg::io_groups)
+    );
   }
-  std::cout << "]\n";
-  std::cout << "  Metadata:\n";
-  std::cout << "    Name: " << user.metadata.name << '\n';
-  std::cout << "    Version::: " << user.metadata.version << '\n';
-  std::cout << "    myDouble: " << user.metadata.my_double << '\n';
-  std::cout << "    Array: [";
-  for (size_t i = 0; i < user.metadata.array.size(); ++i) {
-    if (i > 0) {std::cout << ", ";}
-    std::cout << user.metadata.array[i];
+  void print() const
+  {
+    std::cout << "  Endpoint ID: " << endpoint_id << '\n';
+    std::cout << "  Current Time: " << current_time << '\n';
+    std::cout << "  IOGroups: [\n" ;
+    for (const auto & group : io_groups) {
+      group.print();
+    }
+    std::cout << "  ]\n";
   }
-  std::cout << "]\n";
-}
+};
+
+
 
 int main()
 {
-  // Create a MyData instance
-  MyData data("TestData", 42, {10, 20, 30});
+  // Create an X90Msg instance
+  X90Msg x90_msg;
+  x90_msg.endpoint_id = "Endpoint123";
+  x90_msg.current_time = 1622547800;
+  X90IO<int> io1;
+  io1.name = "IO1";
+  io1.data = 100;
+  X90IO<int> io2;
+  io2.name = "IO2";
+  io2.data = 200;
+  X90IOGroup group1;
+  group1.name = "Group1";
+  group1.time_recorded = 1622547800;
+  group1.is_fail = false;
+  group1.ios.push_back(io1);
+  group1.ios.push_back(io2);
+  x90_msg.io_groups.push_back(group1);
 
-  // Create a UserInfo instance with nested MyData
-  UserInfo user("johndoe", 12345,
-    {"admin", "developer", "tester"},
-    data);
-
-  std::cout << "Original user with nested data:\n";
-  print_user(user);
+  std::cout << "\nOriginal X90Msg:\n";
+  std::cout << "---------------\n";
+  x90_msg.print();
 
   // Serialize to MessagePack buffer
-  static constexpr size_t buffer_size = 1024;
-  std::array<char, buffer_size> buffer;
-  // fill with zero's
-  buffer.fill(0);
-  const auto size_of_msg = Serializable::to_msgpack(buffer, user);
-  std::cout << "Serialized to " << std::to_string(size_of_msg) << " bytes\n";
-  
+  constexpr size_t buffer_size = 1024;
+  std::array<char, buffer_size> x90_buffer;
+  x90_buffer.fill(0);
+  const auto size_of_x90_msg = Serializable::to_msgpack(x90_buffer, x90_msg);
+  std::cout << "Serialized X90Msg to " << std::to_string(size_of_x90_msg) << " bytes\n";
   // Deserialize from buffer
-  UserInfo restored_user;
-  Serializable::from_msgpack(buffer, restored_user);
+  X90Msg restored_x90_msg;
+  Serializable::from_msgpack(x90_buffer, restored_x90_msg);
+  std::cout << "\nDeserialized X90Msg:\n";
+  std::cout << "--------------------\n";
+  restored_x90_msg.print();
 
-  std::cout << "\nDeserialized user with nested data:\n";
-  print_user(restored_user);
+
+
+
+
 
 
   return 0;
