@@ -1,9 +1,11 @@
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <array>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 #include <optional>
 #include <map>
@@ -13,11 +15,10 @@
 #include "include/mpack_serializer.h"
 
 
-template<typename T>
-class X90IO : public MsgPackSerializable<X90IO<T>> {
+class X90IO : public MsgPackSerializable<X90IO> {
   public:
   std::string name;
-  T data;
+  std::variant<bool,double> data;
   static constexpr auto get_fields()
   {
     using namespace serialization;
@@ -29,16 +30,24 @@ class X90IO : public MsgPackSerializable<X90IO<T>> {
   void print() const
   {
     std::cout << "          Name: " << name ;
-    std::cout << "  Data: " << data << '\n';
+    if (std::holds_alternative<bool>(data)) {
+      std::string bool_str = std::get<bool>(data) ? "TRUE" : "FALSE";
+      std::cout << "  Data: " << bool_str << '\n';
+    } else if (std::holds_alternative<double>(data)) {
+      std::cout << "  Data: " << std::get<double>(data) << '\n';
+    } else {
+      // Handle unexpected type
+      std::cout << "  Data: Unknown type\n";
+    }
   }
 };
 
 class X90IOGroup : public MsgPackSerializable<X90IOGroup> {
   public:
   std::string name;
-  int time_recorded;
+  std::uint64_t time_recorded;
   bool is_fail;
-  std::vector<X90IO<int>> ios; 
+  std::vector<X90IO> ios; 
   static constexpr auto get_fields()
   {
     using namespace serialization;
@@ -65,7 +74,7 @@ class X90IOGroup : public MsgPackSerializable<X90IOGroup> {
 class X90Msg : public MsgPackSerializable<X90Msg> {
   public:
   std::string endpoint_id;
-  int current_time;
+  std::uint64_t current_time;
   std::vector<X90IOGroup> io_groups; 
   
   static constexpr auto get_fields()
@@ -97,12 +106,12 @@ int main()
   X90Msg x90_msg;
   x90_msg.endpoint_id = "Endpoint123";
   x90_msg.current_time = 1622547800;
-  X90IO<int> io1;
+  X90IO io1;
   io1.name = "IO1";
-  io1.data = 100;
-  X90IO<int> io2;
+  io1.data = true;
+  X90IO io2;
   io2.name = "IO2";
-  io2.data = 200;
+  io2.data = 200.0;
   X90IOGroup group1;
   group1.name = "Group1";
   group1.time_recorded = 1622547800;

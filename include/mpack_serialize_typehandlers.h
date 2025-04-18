@@ -7,6 +7,7 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 #include <optional>
 #include <map>
@@ -133,6 +134,86 @@ struct TypeHandler
   }
 };
 
+// Variadic template version
+template<typename... Types>
+struct TypeHandler<std::variant<Types...>>
+{
+  static void write(mpack_writer_t* writer, const std::variant<Types...>& value)
+  {
+    // Directly write the value
+    std::visit([writer](const auto& v) {
+      using ValueType = std::decay_t<decltype(v)>;
+      TypeHandler<ValueType>::write(writer, v);
+    }, value);
+  }
+
+  static void read(mpack_reader_t* reader, std::variant<Types...>& value)
+  {
+    // Peek at the next tag
+    mpack_tag_t tag = mpack_peek_tag(reader);
+    
+    // Try to match with a type in the variant
+    bool matched = try_read_variant<0, Types...>(reader, value, tag);
+    
+    if (!matched) {
+      throw std::runtime_error("Could not match any variant type with the MessagePack tag");
+    }
+  }
+
+private:
+  // Recursive template to try reading each variant type
+  template<size_t I, typename First, typename... Rest>
+  static bool try_read_variant(mpack_reader_t* reader, std::variant<Types...>& value, const mpack_tag_t& tag)
+  {
+    if (can_read_as<First>(tag)) {
+      First val;
+      TypeHandler<First>::read(reader, val);
+      value = std::move(val);
+      return true;
+    }
+    
+    if constexpr (sizeof...(Rest) > 0) {
+      return try_read_variant<I+1, Rest...>(reader, value, tag);
+    }
+    
+    return false;
+  }
+
+  // Base case for the recursion
+  template<size_t I>
+  static bool try_read_variant(mpack_reader_t* reader, std::variant<Types...>& value, const mpack_tag_t& tag)
+  {
+    return false;
+  }
+
+  // Type matcher helper
+  template<typename T>
+  static bool can_read_as(const mpack_tag_t& tag) {
+    if constexpr (std::is_same_v<T, bool>) {
+      return tag.type == mpack_type_bool;
+    }
+    else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+      return tag.type == mpack_type_int;
+    }
+    else if constexpr (std::is_integral_v<T> && std::is_unsigned_v<T>) {
+      return tag.type == mpack_type_uint;
+    }
+    else if constexpr (std::is_floating_point_v<T>) {
+      return tag.type == mpack_type_float || tag.type == mpack_type_double;
+    }
+    else if constexpr (std::is_same_v<T, std::string>) {
+      return tag.type == mpack_type_str;
+    }
+    else if constexpr (is_serializable_v<T>) {
+      // For serializable types, we often use maps
+      return tag.type == mpack_type_map;
+    }
+    // Add more type matchers as needed
+    return false;
+  }
+};
+
+
 // Specialization for bool
 template<>
 struct TypeHandler<bool>
@@ -183,6 +264,7 @@ struct TypeHandler<double>
     value = mpack_expect_double(reader);
   }
 };
+
 
 // Specialization for std::optional
 template<typename U>
