@@ -1,5 +1,5 @@
-#ifndef MPACK_SERIALIZE_H
-#define MPACK_SERIALIZE_H
+#ifndef MPACK_SERIALIZE_TYPEHANDLERS_H 
+#define MPACK_SERIALIZE_TYPEHANDLERS_H
 
 #include <iostream>
 #include <string>
@@ -326,4 +326,4 @@ struct TypeHandler<std::unordered_map<K, V>>
   }
 };
 }
-#endif // MPACK_SERIALIZE_H
+#endif // MPACK_SERIALIZE_TYPEHANDLERS_H
